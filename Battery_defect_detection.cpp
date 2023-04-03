@@ -78,7 +78,7 @@ bool isDefect(Mat& image, std::string path);
 //    //reduce(img, columnMean, 0, REDUCE_AVG, CV_64FC1);//列平均值
 //    return 0;
 //}
-bool compareArea(const Data& f1, const Data& f2) {
+bool compareArea(const NewData& f1, const NewData& f2) {
     return f1.Area > f2.Area;
 }
 cv::Mat diffEveryTwoCols(cv::Mat input);
@@ -1172,7 +1172,7 @@ int fitCurve(std::vector<double> x, std::vector<double> y)
 Mat Feature3(Mat rowsFeature) {
     int block = 50;
     int border = 20;//取块避开上下border行
-    Mat feature3 = Mat::zeros(rowsFeature.rows, rowsFeature.cols + 1, CV_16UC1);//多一列存左边界值
+    Mat feature3 = Mat::zeros(rowsFeature.rows, rowsFeature.cols, CV_16UC1);
     Mat base = Mat::zeros(rowsFeature.rows / block, rowsFeature.cols, CV_16UC1);
     for (int j = border; j < rowsFeature.rows - block - border; j += block)
     {
@@ -1180,7 +1180,7 @@ Mat Feature3(Mat rowsFeature) {
         {
             Rect core = Rect(i, j, 1, block);
             Mat Slide = rowsFeature(core).clone();
-            Mat SlideSort = Slide.clone();//排列结果存在SlideSort
+            Mat SlideSort = Slide.clone();
             cv::sort(Slide, SlideSort, SORT_EVERY_COLUMN + CV_SORT_ASCENDING);
             int baseAvg = SlideSort.at<ushort>(block / 2, 0);
             base.at<ushort>(j / block, i) = baseAvg;
@@ -1198,23 +1198,24 @@ Mat Feature3(Mat rowsFeature) {
             index = base.rows - 1;
         }
         int borderFlag = 0;
-        for (int i = 0; i < rowsFeature.cols; i++)
+        for (int i = 1; i < rowsFeature.cols; i++)
         {
             int data = p[i];
             int Dev = 100 * abs(data - base.at<ushort>(index, i));
             if (Dev > 60000) {
                 Dev = 60000;
             }
-            int threshold = 20000;//真正的左边界灰度值阈值
+
+            int threshold = 10000;//真正的左边界灰度值阈值
             if ((data > threshold) && (borderFlag == 0)) {
-                feature3.at<ushort>(j, 0) = i + 1;
+                feature3.at<ushort>(j, 0) = i;
                 borderFlag = 1;
             }
             else if (data < threshold) {
                 borderFlag = 0;
                 feature3.at<ushort>(j, 0) = 0;
             }
-            feature3.at<ushort>(j, i + 1) = Dev;
+            feature3.at<ushort>(j, i) = Dev;
         }
     }
     return feature3;
@@ -1222,84 +1223,120 @@ Mat Feature3(Mat rowsFeature) {
 
 
 void RowsFilter(Mat rowDataMat, int leftBegin) {
-    int threshold = 50000;
+    int threshold = 40000;
     int threshold1 = 5;//从左开始大于threshold的值的个数阈值
     int threshold2 = 5000;//波动阈值
+    int threshold3 = 2;//完成一次波动需要的点数阈值
+    int fluctuateNum = 0;//连续波动点
     int min = 100000;
     int max = 0;
     bool flag = false;
     bool filterFlag = false;
     int extraNum = 0;
-    bool continuousFlag = true;
+    bool extraFlag = false;
     for (int i = leftBegin; i < rowDataMat.cols; i++) {
         int data = rowDataMat.at<ushort>(0, i);
-        if ((data > threshold) && (continuousFlag)) {
+        if (data > threshold) {
             extraNum++;
+            extraFlag = true;
         }
         else {
-            continuousFlag = false;
+            extraNum = 0;
+            extraFlag = false;
         }
         if (extraNum > threshold1) {
             filterFlag = true;
             break;
         }
-        if (data < min) {
+        if ((data < min) && (data > 100)) {
             min = data;
         }
         else if (data - min > threshold2) {
             flag = true;
         }
         if (flag) {
+            fluctuateNum++;
             if (data > max) {
                 max = data;
             }
             else if (max - data > threshold2) {
-                filterFlag = true;
-                break;
+                if (fluctuateNum > threshold3) {
+                    filterFlag = true;
+                    break;
+                }
+                else {
+                    flag = false;
+                    min = 100000;//单点波动太大，更新最小值
+                    max = 0;
+                    extraNum = 0;
+                    fluctuateNum = 0;
+                }
             }
+        }
+        else if (!extraFlag) {
+            rowDataMat.at<ushort>(0, i) = 0;
         }
     }
     if (!filterFlag) {
         rowDataMat = 0;
     }
 }
+void RowsFilter_inverted(Mat rowDataMat) {
+    int threshold2 = 5000;//波动阈值
+    int threshold3 = 2;//完成一次波动需要的点数阈值
+    int fluctuateNum = 0;//连续波动点
+    int min = 100000;
+    bool flag = false;
+    for (int i = rowDataMat.cols - 1; i > 0; i--) {
+        int data = rowDataMat.at<ushort>(0, i);
+        if ((data < min) && (data > 100)) {
+            min = data;
+        }
+        else if (data - min > threshold2) {
+            flag = true;
+        }
+        if (!flag) {
+            rowDataMat.at<ushort>(0, i) = 0;
+        }
+        else {
+            break;
+        }
+    }
+}
+
 
 Mat Feature5(Mat rowsFeature) {
     Mat feature = rowsFeature.clone();
     for (int j = 0; j < feature.rows; j++) {
         int index = rowsFeature.at<ushort>(j, 0);
         Mat rowDataMat(1, feature.cols, feature.type(), feature.ptr(j));
-        RowsFilter(rowDataMat, index);//按行进行滤波
+        RowsFilter(rowDataMat, index);//按行进行滤波(从左往右)
+        RowsFilter_inverted(rowDataMat);//按行进行滤波(从右往左)
     }
     return feature;
 }
 
-void Enhance(Mat rowsFeature, Mat Feature, vector<Point> Index, vector<Data>& data,string path) {
+void Enhance(Mat rowsFeature, Mat Feature, vector<Point> Index) {
     Mat feature1 = Feature.clone();
     Mat feature2 = Feature.clone();
     int cols = Feature.cols;
-  //  for (int i = 1; i < Index.size() - 1; i++) {
-  //      
-		//Rect defect = Rect(0, Index[i].x, cols, Index[i].y - Index[i].x + 1);
-		//Mat result = rowsFeature(defect);
-  //      Mat mat_mean, mat_stddev;
-  //      meanStdDev(result, mat_mean, mat_stddev);
-  //      double mean = mat_mean.at<double>(0, 0);
-  //      double stddev = mat_stddev.at<double>(0, 0);
-
-		//Data data1;
-  //      data1.std = stddev;
-  //      data1.range = Index[i].y - Index[i].x + 1;
-		//data1.mean = mean;
-		//data1.x = Index[i].x;
-  //      data1.y = Index[i].y;
-  //      data.push_back(data1);
-  //  }
-    for (int k = 1; k < Index.size() - 1; k++) {
+    for (int k = 0; k < Index.size(); k++) {
         int beginRow = Index[k].x;
         int RowsNum = Index[k].y - Index[k].x + 1;
+        int endRow = beginRow + RowsNum;
         int expand = RowsNum / 2;
-        if (expand > 10) {
+        bool border = false;
+        if (beginRow<30 || endRow>Feature.rows - 30) {
+            border = true;
+        }
+        else {
+            border = false;
+        }
+
+        if (border) {
+            expand = 0;
+        }
+        else if (expand > 10) {
             expand = 10;
         }
         beginRow = beginRow - expand;
@@ -1307,12 +1344,21 @@ void Enhance(Mat rowsFeature, Mat Feature, vector<Point> Index, vector<Data>& da
         int begin_up = beginRow - RowsNum;
         int begin_down = beginRow + RowsNum;
         int end_down = begin_down + RowsNum;
-        if ((begin_up > 30) && (end_down < Feature.rows - 30)) {
-            Rect defect = Rect(0, beginRow, cols, RowsNum);
-            Mat result = Feature(defect);
-            Mat result_up = feature1(defect);
-            Mat result_down = feature2(defect);
-            Mat src_defect = rowsFeature(defect);
+        if (begin_up < 20) {
+            begin_up = 20;
+        }
+        if (end_down > Feature.rows - 20) {
+            begin_down = Feature.rows - 20 - RowsNum;
+        }
+        Rect defect = Rect(0, beginRow, cols, RowsNum);
+        Mat result = Feature(defect);
+        if (border) {
+            result = 0;
+        }
+        else {
+            Mat result_up = feature1(defect);//缺陷与上基底相减结果
+            Mat result_down = feature2(defect);//缺陷与下基底相减结果
+            Mat src_defect = rowsFeature(defect);//实际缺陷
             Rect background_up = Rect(0, begin_up, cols, RowsNum);
             Rect background_down = Rect(0, begin_down, cols, RowsNum);
             Mat src_up = rowsFeature(background_up);
@@ -1338,15 +1384,21 @@ void Enhance(Mat rowsFeature, Mat Feature, vector<Point> Index, vector<Data>& da
     }
 }
 
-Mat ObviousHandle(Mat rowsFeature, Mat Feature, int begin, int end, vector<Data>& data,string path) {
+Mat ObviousHandle(Mat rowsFeature, Mat Feature) {
+    int begin = 0;
+    int end = Feature.cols - 1;
     int cols = end - begin;
-    Mat feature = Mat::zeros(rowsFeature.rows, cols, CV_16UC1);//增强后的特征图
+    Mat feature = Feature.clone();
     vector<Point> Index;//存储增强行的起始位置
     bool leftFlag = false;
     bool enhanceFlag = false;
     Point index;
-    for (int j = 1; j < Feature.rows; j++) {
-        ushort* p = Feature.ptr<ushort>(j);
+    Mat firstRow(1, feature.cols, feature.type(), feature.ptr(0));
+    Mat endRow(1, feature.cols, feature.type(), feature.ptr(feature.rows - 1));
+    firstRow = 0;
+    endRow = 0;
+    for (int j = 1; j < feature.rows; j++) {
+        ushort* p = feature.ptr<ushort>(j);
         int data = p[0];
         if ((data != 0) && (leftFlag == false)) {
             index.x = j;
@@ -1362,110 +1414,40 @@ Mat ObviousHandle(Mat rowsFeature, Mat Feature, int begin, int end, vector<Data>
             Index.push_back(index);
         }
     }
-    Enhance(rowsFeature, feature, Index, data, path);
+    Enhance(rowsFeature, feature, Index);
     return feature;
 }
 
 
-uint RangeFeature(Mat rowsFeature, vector<Data>& data,string path) {
+uint RangeFeature(Mat rowsFeature, vector<NewData>& data, string path) {
     uint result = 0;
-    //左边界
-    Rect core = Rect(0, 0, 70, rowsFeature.rows);
-    Mat left = rowsFeature(core).clone();
-    Mat feature3 = Feature3(left);//块的列均值作为基底求落差特征图
+    Mat img;
+    int type = 2;
+    int length = 70;
+    if (type == 1) {//左边界
+        Rect core = Rect(0, 0, length, rowsFeature.rows);
+        img = rowsFeature(core).clone();
+    }
+    else if (type == 2) {//右边界
+        flip(rowsFeature, rowsFeature, 1); // 1 表示左右翻转
+        Rect core1 = Rect(0, 0, length, rowsFeature.rows);
+        img = rowsFeature(core1).clone();
+    }
+    Mat feature3 = Feature3(img);//块的列均值作为基底求落差特征图
     Mat feature5 = Feature5(feature3);//按行滤波(不满足要求将其滤为0)
-    Mat featureIndex = feature5.col(0);//可以提取出来对哪几行进行特征增强
-    Mat feature = ObviousHandle(rowsFeature, featureIndex, 0, 70, data, path);//原图、增强索引、开始列、终止列
+    Mat feature = ObviousHandle(rowsFeature, feature5);//原图、待增强图(第一列是增强索引)
+    feature.col(0) = 0;//从第一列开始、将索引列归零
+    Mat Feature_result = Feature5(feature);
 
-
-    Mat _8uResult,binaryImg,_16to8Result;
-    double maxValue,threshod;
-	vector<ushort> pixels;
-    for (int i = 0; i < feature.rows; i++) {
-        ushort* ptr = feature.ptr<ushort>(i);
-        for (int j = 0; j < feature.cols; j++) {
-            ushort v = *ptr++;
-            if (v != 0) {
-                pixels.push_back(v);
-            }   
-        }
-    }
-    if (pixels.size() != 0) {
-        sort(pixels.begin(), pixels.end());
-        double median;
-        size_t pixelCount = pixels.size();
-        median = (double)pixels[int(pixelCount / 2)];
-        int thresholdValue = median *  1.5;
-        threshold(feature, binaryImg, thresholdValue, 65535, THRESH_BINARY);
-        binaryImg.convertTo(_8uResult, CV_8U);
-        vector<vector<Point>> contours;
-        findContours(_8uResult, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-        feature.convertTo(_16to8Result, CV_8U);
-        vector<Data> dataLocal;
-        for (const auto& contour : contours) {
-            Data data1;
-            RotatedRect rect = minAreaRect(contour);
-            double area = contourArea(contour);
-            int x = rect.center.x;
-            int y = rect.center.y;
-            int len = arcLength(contour, true);
-            double circularity = (4 * area * CV_PI) / (len * len);
-            data1.Area = area;
-            data1.centerX = x;
-            data1.centerY = y;
-            data1.rate = circularity;
-            data1.path = path;
-            if (area >= 40) {//面积阈值
-                dataLocal.push_back(data1);
-            }
-        }
-        if (!dataLocal.empty()) {
-            sort(dataLocal.begin(), dataLocal.end(), compareArea);
-            if (dataLocal[0].rate >= 0.5) {//圆形度阈值
-                result = 0b100;
-                dataLocal[0].flag = 1;
-            }
-            else {
-                bool startNum = false;
-                int countStart = 0;
-                int countEnd = 0;
-                uchar* rowPtr = _16to8Result.ptr<uchar>(dataLocal[0].centerY);
-                for (int i = 0; i < _16to8Result.cols; i++) {
-                    ushort grayscaleValue = *rowPtr++;
-                    if (grayscaleValue != 0 && !startNum) {
-                        countStart = i;
-                        startNum = true;
-                    }
-                    else if (startNum && grayscaleValue == 0) {
-                        countEnd = i;
-                        break;
-                    }
-                    if (countEnd == 0) {
-                        countEnd = _16to8Result.cols;
-                    }
-                }
-                int range = countEnd - countStart;
-                if (range <= 30) {
-                    result = 0b100;
-                    dataLocal[0].flag = 1;
-                }
-                else {
-                    dataLocal[0].flag = 0;
-                }
-            }
-        }
-        for (const auto& element : dataLocal) {
-            data.push_back(element);
-        }
-    }
-
+    bool resultFlaw = newLeftEdgeDetect(Feature_result, path, data);
     return result;
 }
 
 
 
 
-void leftEdgeDetect(Mat roi_image,vector<Data>& data,string path) {
+
+void leftEdgeDetect(Mat roi_image,vector<NewData>& data,string path) {
     uint result;
     int step1 = 5;
     Mat rowsFeature = Mat::zeros(roi_image.rows, roi_image.cols / step1, CV_16UC1);
@@ -1496,4 +1478,96 @@ void leftEdgeDetect(Mat roi_image,vector<Data>& data,string path) {
     result = RangeFeature(rowsFeature, data, path);
     
 }
+bool newLeftEdgeDetect(Mat image,string path, vector<NewData>& data)
+{
+    Mat _8uImg, dilateImg;
+    Mat strElement = getStructuringElement(1, Size(3, 3));
+    dilate(image, dilateImg, strElement);
+    dilateImg.convertTo(_8uImg, CV_8U);
+    vector<vector<Point>> contours;
+    findContours(_8uImg, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
+    vector<NewData> newDataLocal;
+    if (!contours.empty()) {
+        for (const auto& contour : contours) {
+            double area = contourArea(contour);
+            if (area < 20) {
+                continue;
+            }
+            RotatedRect minRect = minAreaRect(contour);
+            Rect boundingRect = minRect.boundingRect();//容易越界
+            limitBounding(boundingRect, dilateImg);
+            double areaLength = 0;
+            Mat roi = dilateImg(boundingRect);
+            int x = 0;
+            int y = 0;
+            int areaMean = 0;
+            Mat secondBinary, secondBinary8U;
+            int thresholdMean = getHexGrayMean(roi);
+            threshold(roi, secondBinary, thresholdMean, 65535, THRESH_BINARY);
+            secondBinary.convertTo(secondBinary8U, CV_8U);
+            vector<vector<Point>> secondContours;
 
+            findContours(secondBinary8U, secondContours, RETR_LIST, CHAIN_APPROX_SIMPLE);
+            int secondArea = 0;
+            if (!secondContours.empty()) {
+                sort(secondContours.begin(), secondContours.end(), compareSize);
+                RotatedRect secondMinRect = minAreaRect(secondContours[0]);
+                Rect secondBounding = secondMinRect.boundingRect();
+                limitBounding(secondBounding, roi);
+                Mat secondRoi = roi(secondBounding);
+                areaMean = getHexGrayMean(secondRoi);
+                y = secondMinRect.center.y + boundingRect.y;
+                x = secondMinRect.center.x + boundingRect.x;
+                areaLength = secondMinRect.size.width > secondMinRect.size.height ?
+                    secondMinRect.size.width : secondMinRect.size.height;
+                secondArea = contourArea(secondContours[0]);
+                int len = arcLength(secondContours[0], true);
+                double circularity = (4 * secondArea * CV_PI) / (len * len);
+                NewData newDataElement;
+                newDataElement.Area = secondArea;
+                newDataElement.grayscaleValue = areaMean;
+                newDataElement.Rate = circularity;
+                newDataElement.Length = areaLength;
+                newDataElement.x = x;
+                newDataElement.y = y;
+                newDataElement.path = path;
+                //太小                  太长              太暗	             不够圆
+                //if (secondArea > 60 && areaLength < 45  ) {
+                //    if(areaMean >= 7000 && circularity > 0.6)
+                //        newDataLocal.push_back(newDataElement);
+                //    else if(circularity <= 0.6 && circularity >= 0.3 && areaMean >= 20000)
+                //        newDataLocal.push_back(newDataElement);
+                //}
+                newDataLocal.push_back(newDataElement);
+            }
+        }
+    }
+    for (const auto& element : newDataLocal) {
+        data.push_back(element);
+    }
+    return true;
+}
+void limitBounding(Rect& rect, Mat srcImage) {
+    rect.x = std::max(0, std::min(rect.x, srcImage.cols - 1));
+    rect.y = std::max(0, std::min(rect.y, srcImage.rows - 1));
+    rect.width = std::max(0, std::min(rect.width, srcImage.cols - rect.x));
+    rect.height = std::max(0, std::min(rect.height, srcImage.rows - rect.y));
+}
+int getHexGrayMean(Mat roi) {
+    double sum = 0;
+    int count = 0;
+    for (int row = 0; row < roi.rows; row++) {
+        ushort* ptr = roi.ptr<ushort>(row);
+        for (int col = 0; col < roi.cols; col++) {
+            ushort v = *ptr++;
+            if (v != 0) {
+                sum = sum + v;
+                count++;
+            }
+        }
+    }
+    return sum / count;
+}
+bool compareSize(const vector<Point>& f1, const vector<Point>& f2) {
+    return f1.size() > f2.size();
+}

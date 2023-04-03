@@ -3,10 +3,10 @@
 int main()
 {
     vector<string> filenames;
-    string imagePath = "C:\\Users\\Administrator\\Desktop\\sample\\08left";
+    string imagePath = "C:\\Users\\Administrator\\Desktop\\sample";
     getSubdirs(imagePath, filenames);
     std::ofstream dataFile;
-    vector<Data> data;
+    vector<NewData> data;
     for (int i = 0; i < filenames.size(); i++) {
         Mat image = imread(filenames[i] + "\\1.png", IMREAD_UNCHANGED);
         int left_size = 4;//4mm
@@ -31,25 +31,16 @@ int main()
         Rect right_rect(rect.width - pixelSize, 0, pixelSize, rect.height);
         Mat roi_right = roi(right_rect);
         leftEdgeDetect(roi, data, filenames[i]);
-        
-		//EdgeDetect(roi_left, filenames[i]);
-        Mat roi_left1 = roi(left_rect);//bug
         cout << "stop";
-       
-        //if (defect == true) {
-        //    std::cout << "该样本含有缺陷" << endl;
-        //}
-        //else {
-        //    std::cout << "该样本不含有缺陷" << endl;
-        //}
     }
-    dataFile.open("C:\\Users\\Administrator\\Desktop\\statFlawSample.csv", ios::out | ios::trunc);
-    dataFile << "path" << "," << "x" << "," << "y" << "," << "Area" << "," << "rate" << "," << "flag";
+    dataFile.open("C:\\Users\\Administrator\\Desktop\\sampleInfo\\右侧缺陷样本.csv", ios::out | ios::trunc);
+    dataFile << "path" << "," << "x" << "," << "y" << "," << "Area" << "," << "rate" << "," << "Mean" << "," << "Length" << "," << "flag";
     dataFile << endl;
     if (!data.empty()) {
         for (int j = 0; j < data.size(); j++) {
-            dataFile << data[j].path << "," << data[j].centerX << "," << data[j].centerY 
-                << "," << data[j].Area << "," << data[j].rate << "," << data[j].flag;
+            dataFile << data[j].path << "," << data[j].x << "," << data[j].y 
+                << "," << data[j].Area << "," << data[j].Rate << "," 
+                << data[j].grayscaleValue << "," << data[j].Length << "," << data[j].flag;
             dataFile << endl;
         }
     }

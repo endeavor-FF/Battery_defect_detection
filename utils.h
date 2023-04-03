@@ -16,30 +16,44 @@
 #include<sstream>
 using namespace cv;
 using namespace std; 
-struct Data {
-	//int x;
-	//int y;
-	//int mean;
-	//float std;
-	//int range;
-	int centerX;
-	int centerY;
-	int Area;
-	float rate;
-	int length;
-	string path;
-	int flag = 0;
-};
+//struct Data {
+//	//int x;
+//	//int y;
+//	//int mean;
+//	//float std;
+//	//int range;
+//	int centerX;
+//	int centerY;
+//	int Area;
+//	float rate;
+//	int length;
+//	string path;
+//	int flag = 0;
+//};
 
+struct NewData {
+	int x;
+	int y;
+	int Area;
+	float Rate;
+	int Length;
+	int grayscaleValue;
+	string path;
+	int flag;
+};
+void limitBounding(Rect& rect, Mat srcImage);
+int getHexGrayMean(Mat roi);
+bool compareSize(const vector<Point>& f1, const vector<Point>& f2);
 void EdgeDetect(Mat roi, std::string path);
+bool newLeftEdgeDetect(Mat image, string path, vector<NewData>& data);
 void getSubdirs(std::string path, std::vector<std::string>& files);
 int returnMaxIndex(vector<vector<Point>> contours);
-void leftEdgeDetect(Mat roi_image, vector<Data>& data,string path);
-uint RangeFeature(Mat rowsFeature, vector<Data>& data, string path);
-Mat ObviousHandle(Mat rowsFeature, Mat Feature, int begin, int end, vector<Data>& data, string path);
-void Enhance(Mat rowsFeature, Mat Feature, vector<Point> Index, vector<Data>& data, string path);
+void leftEdgeDetect(Mat roi_image, vector<NewData>& data,string path);
+uint RangeFeature(Mat rowsFeature, vector<NewData>& data, string path);
+Mat ObviousHandle(Mat rowsFeature, Mat Feature, int begin, int end);
+void Enhance(Mat rowsFeature, Mat Feature, vector<Point> Index);
 Mat Feature5(Mat rowsFeature);
 void RowsFilter(Mat rowDataMat, int leftBegin);
 Mat Feature3(Mat rowsFeature);
-bool compareArea(const Data& f1, const Data& f2);
+bool compareArea(const NewData& f1, const NewData& f2);
 #pragma once
